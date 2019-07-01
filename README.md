@@ -1,6 +1,7 @@
 # Заказ на fullfactorydistro.com
 Скрипт набивает товары в корзину из order.xlsx фалйла
 Для генерации файла с остатками и ценами необходимо использовать https://github.com/tribesman/fullfactorydistro.com
+
 Колонки:
 * Name - Наименование (как на сайте fullfactorydistro.com)	
 * Option - Модификация товара (как на сайте fullfactorydistro.com)
