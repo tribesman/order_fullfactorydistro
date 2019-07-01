@@ -2,3 +2,4 @@ config.toml
 build/config.toml
 order.xlsx
 log.txt
+output.csv
