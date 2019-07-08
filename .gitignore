@@ -2,13 +2,8 @@ config.toml
 build/config.toml
 order.xlsx
 log.txt
-output.csv
+output*
 body_1.html
 body_2.html
 body_4.html
 body_5.html
-cart.html
-login.html
-checkout_1.html
-checkout_2.html
-checkout_3.html
