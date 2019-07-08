@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/csv"
 	"fmt"
 	"log"
@@ -43,11 +44,12 @@ type Columns struct {
 
 // Product Товар
 type Product struct {
-	name  string
-	mod   string
-	msrp  string
-	url   string
-	total int
+	name      string
+	mod       string
+	msrp      string
+	url       string
+	total     int
+	addToCart int
 }
 
 func main() {
@@ -82,7 +84,7 @@ func main() {
 	defer csvFile.Close()
 
 	csvWriter := csv.NewWriter(csvFile)
-	line := []string{"Name", "Option", "MSRP", "URL", "Total", ""}
+	line := []string{"Name", "Option", "MSRP", "URL", "Total", "В корзине"}
 	_ = csvWriter.Write(line)
 	defer csvWriter.Flush()
 
@@ -94,12 +96,11 @@ func main() {
 	p := getProducts(dir+"/"+settings.Xlsx, &columns)
 
 	// Добавляем товары в корзину
-
 	putToCart(p, &settings)
 
 	// Сохраняем товары в cvs для проверки
 	for _, row := range p {
-		line := []string{row.name, row.mod, row.msrp, row.url, strconv.Itoa(row.total)}
+		line := []string{row.name, row.mod, row.msrp, row.url, strconv.Itoa(row.total), strconv.Itoa(row.addToCart)}
 		err := csvWriter.Write(line)
 		checkError("Cannot write to file", err)
 	}
@@ -162,7 +163,7 @@ func getProducts(file string, columns *Columns) (p []Product) {
 			var product Product
 			product.name = row.Cells[columns.name].String()
 			product.mod = row.Cells[columns.mod].String()
-			product.url = row.Cells[columns.url].String()
+			product.url = strings.TrimSpace(row.Cells[columns.url].String())
 			product.msrp = row.Cells[columns.msrp].String()
 			product.total, _ = row.Cells[columns.total].Int()
 			if product.name != "" && product.url != "" && product.total > 0 {
@@ -179,50 +180,80 @@ func putToCart(p []Product, settings *Config) {
 	ex, _ := os.Executable()
 	dir := filepath.Dir(ex)
 
-	loginCount := 0     // кол-во попыток авторизации
-	isLogin := false    // скрипт еще не залогинен
-	isCartPage := false // корзина
-	i := 1              // Кол-во строк для обработки
+	loginCount := 0    // кол-во попыток авторизации
+	isLogin := false   // скрипт еще не залогинен
+	clearCart := false // корзина
+	isProduct := false // обработка товаров
+	i := 50            // Кол-во строк для обработки
+	rowMod := ""       // Наименование модификации
+	rowTotal := 0      // Наименование модификации
+	rowAdded := 0      // признак добавления товара в коризину
 
 	// Instantiate default collector
 	c := colly.NewCollector(
-		// Visit only domains: hackerspaces.org, wiki.hackerspaces.org
-		colly.AllowedDomains("fullfactorydistro.com"),
+		//colly.AllowedDomains("fullfactorydistro.com")
+		colly.AllowURLRevisit(),
+		colly.MaxDepth(1),
+		//colly.Debugger(&debug.LogDebugger{}),
+		colly.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.109 Safari/537.36"),
 	)
+
+	// Before making a request print "Visiting ..."
+	c.OnRequest(func(r *colly.Request) {
+		//fmt.Printf("--->Visiting: %s\n", r.URL.String())
+	})
 
 	c.OnError(func(r *colly.Response, e error) {
 		fmt.Println("error:", e, r.Request.URL, string(r.Body))
 	})
 
-	// Before making a request print "Visiting ..."
-	c.OnRequest(func(r *colly.Request) {
-		fmt.Printf("\nVisiting: %s\n", r.URL.String())
-	})
-
 	c.OnResponse(func(r *colly.Response) {
-		isCartPage = false
 		if strings.Contains(r.Request.URL.String(), "account") {
 			log.Println("LOGGIN", r.Request.URL, r.StatusCode)
 			r.Save(dir + "/login.html")
-		} else if strings.Contains(r.Request.URL.String(), settings.CartUrl) {
+		} else if r.Request.URL.String() == settings.CartUrl {
 			log.Println("Корзина", r.Request.URL, r.StatusCode)
+			r.Body = bytes.ReplaceAll(r.Body, []byte("//cdn.shopify.com/"), []byte("https://cdn.shopify.com/"))
+			r.Body = bytes.ReplaceAll(r.Body, []byte("href=\"/products/"), []byte("href=\""+settings.HomeUrl+"/products/"))
 			r.Save(dir + "/cart.html")
-			isCartPage = true
 		} else {
-			r.Save(dir + "/body_" + strconv.Itoa(i) + ".html")
+			//r.Save(dir + "/body_" + strconv.Itoa(i) + ".html")
 		}
 	})
 
-	//<a href="/cart/change?line=18&amp;quantity=0" class="btn">Remove</a>
+	// добавление товаров в корзину
+	c.OnHTML("div[itemtype='http://schema.org/Offer']", func(e *colly.HTMLElement) {
+		rowAdded = 0
+		if isProduct == true {
+			e.ForEach("option", func(_ int, option *colly.HTMLElement) {
+				mod := strings.TrimSpace(option.Text)
+				productID := option.Attr("value")
+
+				if mod == rowMod {
+					fmt.Printf("--->ДОБАВЛЯЕМ В КОРЗИНУ value %s, price %s, offer %s\n", productID, option.Attr("data-price"), mod)
+
+					err := c.Post(settings.HomeUrl+"/cart/add", map[string]string{"id": productID, "quantity": strconv.Itoa(rowTotal), "fadd": "Add to cart", "utf8": "true"})
+					if err != nil {
+						log.Println(err)
+					}
+					rowAdded = 1
+				} else {
+					//fmt.Printf("OPTION value %s, price %s, name %s\n", productID, option.Attr("data-price"), mod)
+				}
+			})
+		}
+	})
+	// Очистка корзины
 	c.OnHTML("a[href].btn", func(e *colly.HTMLElement) {
-		//fmt.Println("Очистка корзины", isCartPage)
-		if isCartPage == true {
+		// если мы на странице корзины и ее надо очистить
+		//<a href="/cart/change?line=18&amp;quantity=0" class="btn">Remove</a>
+		if clearCart == true && strings.Contains(e.Request.URL.String(), settings.CartUrl) {
 			// Очистика корзины
 			link := e.Attr("href")
 			if strings.Contains(link, "/cart/change?line=") {
 				fmt.Println(link)
 			}
-
+			clearCart = false
 		}
 	})
 
@@ -234,7 +265,7 @@ func putToCart(p []Product, settings *Config) {
 			// authenticate
 			err := c.Post(settings.LoginUrl, map[string]string{"customer[email]": settings.Login, "customer[password]": settings.Password, "form_type": "customer_login", "utf8": "true"})
 			if err != nil {
-				log.Fatal(err)
+				log.Println(err)
 			}
 			loginCount = loginCount + 1
 			isLogin = true
@@ -245,23 +276,26 @@ func putToCart(p []Product, settings *Config) {
 		}
 	})
 
-	// Ищем товар и добавляем его в корзину
-
-	//c.OnHTML("html", func(e *colly.HTMLElement) {
-
-	//err = ioutil.WriteFile("body.html", e.Response.Body, 0644)
-	//})
-
 	c.Visit(settings.HomeUrl) // Сначала авторизируемся
+	clearCart = true
 	c.Visit(settings.CartUrl) // Очистка корзины
-	//for _, row := range p {
-	//	fmt.Printf("%v\n", row)
-	//	c.Visit(row.url)
-	//	i = i - 1
-	//	if i == 0 {
-	//		break
-	//	}
-	//}
+
+	isProduct = true // обрабатыввем товары
+	for iter, row := range p {
+		rowMod = row.mod
+		rowTotal = row.total
+		fmt.Printf("\n%d %s [%s]\n", i, row.name, row.mod)
+		//fmt.Printf("--->url: '%s'\n", row.url)
+		c.Visit(row.url)
+		c.Wait()
+		p[iter].addToCart = rowAdded
+		i = i - 1
+		if i == 0 {
+			//break
+		}
+	}
+	isProduct = false
+	c.Visit(settings.CartUrl) // смотрим что в корзине
 
 }
 
