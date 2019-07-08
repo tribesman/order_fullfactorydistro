@@ -41,6 +41,6 @@ checkoutDifferentBillingAddress = "false"
 
 # Build
 ```
-GOOS=darwin GOARCH=amd64  go build -o build/fullfactorydistro_mac
-GOOS=windows GOARCH=amd64  go build -o build/fullfactorydistro_win.exe
+GOOS=darwin GOARCH=amd64  go build -o build/order_fullfactorydistro_mac
+GOOS=windows GOARCH=amd64  go build -o build/order_fullfactorydistro_win.exe
 ```
