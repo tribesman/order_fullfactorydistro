@@ -217,12 +217,12 @@ func putToCart(p []Product, settings *Config) {
 	c.OnResponse(func(r *colly.Response) {
 		if strings.Contains(r.Request.URL.String(), "account") {
 			log.Println("LOGGIN", r.Request.URL, r.StatusCode)
-			r.Save(dir + "/login.html")
+			//r.Save(dir + "/output_login.html")
 		} else if r.Request.URL.String() == settings.CartUrl {
 			log.Println("Корзина", r.Request.URL, r.StatusCode)
 			r.Body = bytes.ReplaceAll(r.Body, []byte("//cdn.shopify.com/"), []byte("https://cdn.shopify.com/"))
 			r.Body = bytes.ReplaceAll(r.Body, []byte("href=\"/products/"), []byte("href=\""+settings.HomeUrl+"/products/"))
-			r.Save(dir + "/cart.html")
+			r.Save(dir + "/output_cart.html")
 		} else {
 			//r.Save(dir + "/body_" + strconv.Itoa(i) + ".html")
 		}
@@ -309,8 +309,6 @@ func putToCart(p []Product, settings *Config) {
 
 func createOrder(settings *Config, c *colly.Collector) {
 
-	//{"id":426282352669,"customer_id":153799819293,"first_name":"HLR","last_name":"DISTRIBUTION","company":null,"address1":"Zorge str. 47","address2":"","city":"Moscow","province":"Moscow","country":"Russia","zip":"123308","phone":"","name":"HLR DISTRIBUTION","province_code":"MOW","country_code":"RU","country_name":"Russia","default":true}
-
 	log.Println("START CHECKOUT")
 	ex, _ := os.Executable()
 	dir := filepath.Dir(ex)
@@ -320,7 +318,7 @@ func createOrder(settings *Config, c *colly.Collector) {
 	c.OnResponse(func(r *colly.Response) {
 		r.Body = bytes.ReplaceAll(r.Body, []byte("//cdn.shopify.com/"), []byte("https://cdn.shopify.com/"))
 		r.Body = bytes.ReplaceAll(r.Body, []byte("href=\"/products/"), []byte("href=\""+settings.HomeUrl+"/products/"))
-		r.Save(dir + "/checkout_" + strconv.Itoa(step) + ".html")
+		r.Save(dir + "/output_checkout_" + strconv.Itoa(step) + ".html")
 	})
 
 	c.OnHTML("body", func(e *colly.HTMLElement) {
