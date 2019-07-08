@@ -18,19 +18,30 @@ import (
 
 // Config Настройки
 type Config struct {
-	Login    string
-	Password string
-	LoginUrl string
-	HomeUrl  string
-	CartUrl  string
-	Xlsx     string
-	Log      string
-	LogCSV   string
-	Name     string
-	Mod      string
-	Msrp     string
-	URL      string
-	Total    string
+	Login                           string
+	Password                        string
+	LoginUrl                        string
+	HomeUrl                         string
+	CartUrl                         string
+	Xlsx                            string
+	Log                             string
+	LogCSV                          string
+	Name                            string
+	Mod                             string
+	Msrp                            string
+	URL                             string
+	Total                           string
+	CheckoutFirstName               string
+	CheckoutLastName                string
+	CheckoutAddress                 string
+	CheckoutCity                    string
+	CheckoutCountry                 string
+	CheckoutProvince                string
+	CheckoutZip                     string
+	CheckoutShippingMethood         string
+	CheckoutNote                    string
+	CheckoutPaymentGateway          string
+	CheckoutDifferentBillingAddress string
 }
 
 // Columns - сопоставление колонок с данными
@@ -62,10 +73,6 @@ func main() {
 	dir := filepath.Dir(ex)
 	fmt.Println(dir)
 
-	// 0 Без логов
-	// 1 Только в файл
-	// 2 В файл и консоль
-	debug := 2
 	//isProductPage := false
 
 	// Load settings
@@ -108,7 +115,7 @@ func main() {
 	// test scrap product
 	//c.Visit(productsURL[0])
 	fulltimeEnd := time.Now()
-	myLogger(logFile, fmt.Sprintf("\n---\nElapsed time: %v\n", fulltimeEnd.Sub(fulltimeStart)), debug)
+	fmt.Printf("\n---\nElapsed time: %v\n", fulltimeEnd.Sub(fulltimeStart))
 }
 
 // Сопоставляем номера колонок
@@ -184,7 +191,7 @@ func putToCart(p []Product, settings *Config) {
 	isLogin := false   // скрипт еще не залогинен
 	clearCart := false // корзина
 	isProduct := false // обработка товаров
-	i := 50            // Кол-во строк для обработки
+	i := 3             // Кол-во строк для обработки
 	rowMod := ""       // Наименование модификации
 	rowTotal := 0      // Наименование модификации
 	rowAdded := 0      // признак добавления товара в коризину
@@ -291,26 +298,115 @@ func putToCart(p []Product, settings *Config) {
 		p[iter].addToCart = rowAdded
 		i = i - 1
 		if i == 0 {
-			//break
+			break
 		}
 	}
 	isProduct = false
 	c.Visit(settings.CartUrl) // смотрим что в корзине
 
+	createOrder(settings, c)
+}
+
+func createOrder(settings *Config, c *colly.Collector) {
+
+	//{"id":426282352669,"customer_id":153799819293,"first_name":"HLR","last_name":"DISTRIBUTION","company":null,"address1":"Zorge str. 47","address2":"","city":"Moscow","province":"Moscow","country":"Russia","zip":"123308","phone":"","name":"HLR DISTRIBUTION","province_code":"MOW","country_code":"RU","country_name":"Russia","default":true}
+
+	log.Println("START CHECKOUT")
+	ex, _ := os.Executable()
+	dir := filepath.Dir(ex)
+	step := 0
+
+	// attach callbacks after login
+	c.OnResponse(func(r *colly.Response) {
+		r.Body = bytes.ReplaceAll(r.Body, []byte("//cdn.shopify.com/"), []byte("https://cdn.shopify.com/"))
+		r.Body = bytes.ReplaceAll(r.Body, []byte("href=\"/products/"), []byte("href=\""+settings.HomeUrl+"/products/"))
+		r.Save(dir + "/checkout_" + strconv.Itoa(step) + ".html")
+	})
+
+	c.OnHTML("body", func(e *colly.HTMLElement) {
+		if step == 1 {
+			step = step + 1
+			action := getAttr(e, "form[novalidate=novalidate]", "action")
+			data := map[string]string{
+				"_method":                                getAttr(e, "input[name=_method]", "value"),
+				"authenticity_token":                     getAttr(e, "input[name=authenticity_token]", "value"),
+				"previous_step":                          getAttr(e, "input[name=previous_step]", "value"),
+				"step":                                   getAttr(e, "input[name=step]", "value"),
+				"checkout[shipping_address][first_name]": settings.CheckoutFirstName,
+				"checkout[shipping_address][last_name]":  settings.CheckoutLastName,
+				"checkout[shipping_address][address1]":   settings.CheckoutAddress,
+				"checkout[shipping_address][city]":       settings.CheckoutCity,
+				"checkout[shipping_address][country]":    settings.CheckoutCountry,
+				"checkout[shipping_address][province]":   settings.CheckoutProvince,
+				"checkout[shipping_address][zip]":        settings.CheckoutZip,
+				"utf8":                                   "true"}
+			fmt.Printf("\n===>action : %s\n", action)
+			fmt.Printf("data : %v\n", data)
+
+			err := c.Post(settings.HomeUrl+action, data)
+			if err != nil {
+				log.Println(err)
+			}
+		} else if step == 2 {
+			step = step + 1
+			action := getAttr(e, "form[data-shipping-method-form=true]", "action")
+			data := map[string]string{
+				"_method":                     getAttr(e, "input[name=_method]", "value"),
+				"authenticity_token":          getAttr(e, "input[name=authenticity_token]", "value"),
+				"previous_step":               getAttr(e, "input[name=previous_step]", "value"),
+				"step":                        getAttr(e, "input[name=step]", "value"),
+				"checkout[shipping_rate][id]": settings.CheckoutShippingMethood,
+				"utf8":                        "true"}
+			fmt.Printf("\n===>action : %s\n", action)
+			fmt.Printf("data : %v\n", data)
+
+			err := c.Post(settings.HomeUrl+action, data)
+			if err != nil {
+				log.Println(err)
+			}
+		} else if step == 3 {
+			step = step + 1
+			step = step + 1
+			action := getAttr(e, "form[data-payment-form]", "action")
+			data := map[string]string{
+				"_method":                             getAttr(e, "input[name=_method]", "value"),
+				"authenticity_token":                  getAttr(e, "input[name=authenticity_token]", "value"),
+				"previous_step":                       getAttr(e, "input[name=previous_step]", "value"),
+				"step":                                "",
+				"checkout[payment_gateway]":           settings.CheckoutPaymentGateway,
+				"checkout[different_billing_address]": settings.CheckoutDifferentBillingAddress,
+				"utf8":                                "true"}
+			fmt.Printf("\n===>action : %s\n", action)
+			fmt.Printf("data : %v\n", data)
+
+			//err := c.Post(settings.HomeUrl+action, data)
+			//if err != nil {
+			//	log.Println(err)
+			//}
+
+		}
+
+	})
+
+	step = step + 1
+	err := c.Post(settings.CartUrl, map[string]string{"checkout": "Checkout", "note": settings.CheckoutNote, "utf8": "true"})
+	if err != nil {
+		log.Println(err)
+	}
+
+}
+
+func getAttr(e *colly.HTMLElement, find string, attr string) (value string) {
+	e.ForEach(find, func(_ int, form *colly.HTMLElement) {
+		if value == "" {
+			value = form.Attr(attr)
+		}
+	})
+	return
 }
 
 func checkError(message string, err error) {
 	if err != nil {
 		log.Fatal(message, err)
-	}
-}
-
-func myLogger(f *os.File, s string, debug int) {
-	if debug == 1 {
-		f.WriteString(s)
-	}
-	if debug == 2 {
-		fmt.Print(s)
-		f.WriteString(s)
 	}
 }
